@@ -1284,9 +1284,12 @@
     setTimeout(() => { ov.style.display = 'none'; }, 650);
   };
 
-  window.checkPass = function () {
+  window.checkPass = async function () {
     const inp = document.getElementById('pass-input');
-    if (inp.value === 'alleenvoorstef') {
+    const encoded = new TextEncoder().encode(inp.value);
+    const buf  = await crypto.subtle.digest('SHA-256', encoded);
+    const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    if (hash === 'aeab24938b76c6d3e153945dc442cb537326a7e804a9d1d08f595078898a89ce') {
       unlock();
     } else {
       inp.value = '';
