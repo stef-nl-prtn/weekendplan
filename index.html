@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weekendroadtrip · Delft → Ruhr</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0f1117;
+      --card:    #21253a;
+      --border:  #2e3350;
+      --text:    #e8eaf6;
+      --muted:   #8892b0;
+      --radius:  14px;
+      --accent:  #f5a623;
+      --accent2: #e8855a;
+      --green:   #64ffda;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ═══════════════════════════════════════════════
+       PUZZLE OVERLAY
+    ═══════════════════════════════════════════════ */
+    #puzzle-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 24px 16px 32px;
+      overflow-y: auto;
+      transition: opacity .6s ease, transform .6s ease;
+    }
+    #puzzle-overlay.unlocking {
+      pointer-events: none;
+      opacity: 0;
+      transform: scale(1.04);
+    }
+
+    /* ── header ── */
+    .chess-header {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .chess-header .lock-icon {
+      font-size: 2rem;
+      display: block;
+      margin-bottom: 8px;
+      animation: pulse 2.5s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
+    .chess-header h2 { font-size: 1.2rem; font-weight: 800; margin-bottom: 4px; }
+    .chess-header p  { font-size: .8rem; color: var(--muted); margin-bottom: 10px; }
+    .hint-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(245,166,35,.12); color: var(--accent);
+      border: 1px solid rgba(245,166,35,.28); border-radius: 99px;
+      font-size: .7rem; font-weight: 600; padding: 4px 14px;
+    }
+
+    /* ── status bar ── */
+    #chess-status {
+      font-size: .78rem; font-weight: 600; color: var(--muted);
+      margin: 10px 0 8px; text-align: center; min-height: 20px;
+      transition: color .2s;
+    }
+    #chess-status.check  { color: #ff6b6b; }
+    #chess-status.yours  { color: var(--accent); }
+    #chess-status.ai     { color: var(--muted); }
+    #chess-status.win    { color: var(--green); }
+
+    /* ── board outer wrapper (labels + board) ── */
+    .board-outer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .board-row { display: flex; align-items: center; gap: 4px; }
+
+    /* rank labels */
+    .rank-labels {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-around;
+      height: var(--board-size, 320px);
+      font-size: .6rem;
+      color: var(--muted);
+      width: 12px;
+      text-align: center;
+    }
+    /* file labels */
+    .file-labels {
+      display: flex;
+      justify-content: space-around;
+      width: var(--board-size, 320px);
+      font-size: .6rem;
+      color: var(--muted);
+      padding: 0 0 0 16px;
+    }
+
+    /* ── chess board ── */
+    #chess-board {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      width: var(--board-size, 320px);
+      height: var(--board-size, 320px);
+      border: 2px solid #444;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0,0,0,.5);
+    }
+
+    .sq {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      position: relative;
+      transition: filter .1s;
+    }
+    .sq:hover { filter: brightness(1.12); }
+    .sq.light   { background: #f0d9b5; }
+    .sq.dark    { background: #b58863; }
+    .sq.sel     { background: #f6f669 !important; }
+    .sq.in-check-king { background: #ff4d4d !important; }
+
+    /* legal move dot */
+    .sq.legal::after {
+      content: '';
+      position: absolute;
+      width: 30%; height: 30%;
+      background: rgba(0,0,0,.25);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    /* legal capture ring */
+    .sq.legal.has-piece::after {
+      width: 88%; height: 88%;
+      background: transparent;
+      border: 3px solid rgba(0,0,0,.3);
+      border-radius: 50%;
+    }
+
+    .cp {
+      font-size: clamp(1.5rem, 8vw, 2.4rem);
+      line-height: 1;
+      user-select: none;
+      pointer-events: none;
+    }
+    .cp.w { filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
+    .cp.b { filter: drop-shadow(0 1px 2px rgba(0,0,0,.3)); }
+
+    /* last-move highlight */
+    .sq.last-from, .sq.last-to { background: rgba(155,199,0,.4) !important; }
+
+    /* ── captured pieces ── */
+    .captured-bar {
+      display: flex; gap: 2px; flex-wrap: wrap;
+      font-size: .85rem; min-height: 20px; margin: 2px 0;
+      width: var(--board-size, 320px);
+    }
+    .captured-bar.top { justify-content: flex-start; }
+    .captured-bar.bot { justify-content: flex-start; }
+
+    /* ── buttons ── */
+    .chess-btns { display: flex; gap: 10px; margin-top: 14px; align-items: center; flex-wrap: wrap; justify-content: center; }
+    .chess-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: .78rem; font-weight: 600;
+      padding: 7px 18px;
+      transition: all .2s;
+    }
+    .chess-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(245,166,35,.08); }
+    .skip-link {
+      font-size: .68rem; color: #2a2d40;
+      cursor: pointer; user-select: none; transition: color .2s;
+      margin-top: 10px;
+    }
+    .skip-link:hover { color: var(--muted); }
+
+    /* win overlay on board */
+    #win-splash {
+      display: none;
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      background: linear-gradient(135deg, #1a1d27, #21253a);
+      border: 2px solid var(--green);
+      border-radius: 12px;
+      padding: 18px 28px;
+      text-align: center;
+      z-index: 10;
+      box-shadow: 0 0 40px rgba(100,255,218,.2);
+      animation: splashIn .4s ease;
+    }
+    @keyframes splashIn { from{opacity:0;transform:translate(-50%,-52%)} to{opacity:1;transform:translate(-50%,-50%)} }
+    #win-splash .ws-emoji { font-size: 2rem; margin-bottom: 6px; }
+    #win-splash .ws-title { font-size: 1rem; font-weight: 800; color: var(--green); }
+    #win-splash .ws-sub   { font-size: .75rem; color: var(--muted); margin-top: 4px; }
+
+    .board-wrap { position: relative; }
+
+    /* ══════════════════════════════════════════
+       TAB NAV
+    ══════════════════════════════════════════ */
+    .tab-nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(15,17,23,.92);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: center; gap: 6px; padding: 10px 16px;
+    }
+    .tab-btn {
+      background: transparent; border: 1px solid var(--border); border-radius: 99px;
+      color: var(--muted); cursor: pointer; font-family: inherit;
+      font-size: .8rem; font-weight: 600; letter-spacing: .02em;
+      padding: 7px 18px; transition: all .2s; white-space: nowrap;
+    }
+    .tab-btn:hover { border-color: var(--muted); color: var(--text); }
+    .tab-btn.active { border-color: #f5a623; color: #f5a623; background: rgba(245,166,35,.1); }
+    .tab-btn[data-tab="saturday"].active { border-color: #5b8dee; color: #5b8dee; background: rgba(91,141,238,.1); }
+    .tab-btn[data-tab="sunday"].active   { border-color: #64ffda; color: #64ffda; background: rgba(100,255,218,.1); }
+
+    /* ══════════════════════════════════════════
+       TAB CONTENT
+    ══════════════════════════════════════════ */
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .day-friday   { --accent: #f5a623; --accent2: #e8855a; --accent-rgb: 245,166,35; }
+    .day-saturday { --accent: #5b8dee; --accent2: #a78bfa; --accent-rgb: 91,141,238; }
+    .day-sunday   { --accent: #64ffda; --accent2: #5eead4; --accent-rgb: 100,255,218; }
+
+    /* ══════════════════════════════════════════
+       HERO
+    ══════════════════════════════════════════ */
+    .hero {
+      background: linear-gradient(135deg, #1a1d27 0%, #12152a 60%, #0d1020 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 44px 24px 32px; text-align: center;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(var(--accent-rgb),.16), transparent);
+      pointer-events: none;
+    }
+    .hero-tag {
+      display: inline-block;
+      background: rgba(var(--accent-rgb),.15); color: var(--accent);
+      border: 1px solid rgba(var(--accent-rgb),.3); border-radius: 99px;
+      font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+      padding: 4px 14px; margin-bottom: 16px;
+    }
+    .hero h1 { font-size: clamp(1.55rem,5vw,2.3rem); font-weight: 800; letter-spacing: -.02em; line-height: 1.2; }
+    .hero h1 .arrow { color: var(--accent); margin: 0 6px; }
+    .hero-sub { color: var(--muted); font-size: .9rem; margin-top: 10px; }
+    .hero-meta { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+    .hero-meta span { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 5px 12px; font-size: .78rem; color: var(--muted); }
+    .hero-meta span strong { color: var(--text); }
+
+    /* ══════════════════════════════════════════
+       LAYOUT / TIMELINE / CARDS
+    ══════════════════════════════════════════ */
+    .container { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
+    .section-label { font-size: .68rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 32px 0 14px; }
+
+    .timeline { position: relative; display: flex; flex-direction: column; }
+    .timeline::before {
+      content: ''; position: absolute; left: 27px; top: 24px; bottom: 24px; width: 2px;
+      background: linear-gradient(to bottom, var(--accent), var(--accent2), var(--border)); border-radius: 2px;
+    }
+    .card { display: grid; grid-template-columns: 56px 1fr; gap: 0 14px; position: relative; }
+    .card-dot { display: flex; flex-direction: column; align-items: center; padding-top: 4px; z-index: 1; }
+    .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg); box-shadow: 0 0 0 2px var(--accent); flex-shrink: 0; margin-top: 20px; }
+    .dot.dim  { background: var(--muted); box-shadow: 0 0 0 2px var(--muted); }
+    .dot.star { box-shadow: 0 0 0 4px rgba(var(--accent-rgb),.28); }
+
+    .card-body { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 8px; transition: border-color .2s; }
+    .card-body:hover { border-color: rgba(var(--accent-rgb),.35); }
+    .card-body.featured { border-color: rgba(var(--accent-rgb),.45); background: linear-gradient(135deg,#21253a,#1e2238); box-shadow: 0 4px 28px rgba(var(--accent-rgb),.1); }
+
+    .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+    .card-time  { font-size: .73rem; font-weight: 700; color: var(--accent); letter-spacing: .04em; white-space: nowrap; }
+    .card-icon  { font-size: 1.25rem; line-height: 1; flex-shrink: 0; }
+    .card-title { font-size: .97rem; font-weight: 700; flex: 1; }
+    .card-loc   { font-size: .76rem; color: var(--muted); margin-bottom: 8px; }
+
+    .badge { display: inline-flex; align-items: center; gap: 4px; background: rgba(var(--accent-rgb),.12); color: var(--accent); border: 1px solid rgba(var(--accent-rgb),.25); border-radius: 99px; font-size: .68rem; font-weight: 600; padding: 3px 10px; margin-bottom: 8px; }
+    .badge.alt { background: rgba(100,255,218,.1); color: var(--green); border-color: rgba(100,255,218,.25); }
+
+    .featured-tag { display: inline-flex; align-items: center; gap: 5px; background: rgba(var(--accent-rgb),.18); color: var(--accent); border-radius: 99px; font-size: .66rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 3px 10px; margin-bottom: 6px; }
+
+    .card-list { list-style: none; display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+    .card-list li { font-size: .82rem; color: var(--muted); display: flex; align-items: flex-start; gap: 8px; line-height: 1.45; }
+    .card-list li::before { content: '›'; color: var(--accent); font-weight: 700; flex-shrink: 0; }
+    .card-list li strong { color: var(--text); }
+
+    .note { margin-top: 8px; background: rgba(255,255,255,.04); border-left: 3px solid var(--accent2); border-radius: 0 6px 6px 0; padding: 6px 12px; font-size: .78rem; color: var(--muted); line-height: 1.45; }
+    .note strong { color: var(--text); }
+
+    .suggestions { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+    .s-item { background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; display: flex; align-items: center; gap: 10px; }
+    .s-item.top { border-color: rgba(var(--accent-rgb),.25); }
+    .s-icon { font-size: 1.1rem; flex-shrink: 0; }
+    .s-name { font-size: .86rem; font-weight: 600; color: var(--text); }
+    .s-desc { font-size: .74rem; color: var(--muted); margin-top: 1px; }
+
+    .option-fork { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0; }
+    .option-fork.three { grid-template-columns: 1fr 1fr 1fr; }
+    .opt-card { background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px; padding: 10px; text-align: center; }
+    .opt-card .opt-icon { font-size: 1.4rem; margin-bottom: 5px; }
+    .opt-card .opt-name { font-size: .78rem; font-weight: 700; color: var(--text); }
+    .opt-card .opt-desc { font-size: .7rem; color: var(--muted); margin-top: 2px; line-height: 1.3; }
+
+    .tips-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+    .tip-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; text-align: center; }
+    .tip-card .tip-icon  { font-size: 1.5rem; margin-bottom: 7px; }
+    .tip-card .tip-title { font-size: .8rem; font-weight: 700; color: var(--text); margin-bottom: 3px; }
+    .tip-card .tip-desc  { font-size: .72rem; color: var(--muted); line-height: 1.4; }
+
+    .footer { text-align: center; color: var(--muted); font-size: .75rem; margin-top: 44px; }
+    .footer span { color: var(--accent); }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 28px 0 0; }
+
+    @media (max-width: 420px) {
+      :root { --board-size: min(320px, 92vw) !important; }
+      .tips-grid, .option-fork.three { grid-template-columns: 1fr; }
+      .hero { padding: 32px 16px 24px; }
+      .tab-btn { font-size: .73rem; padding: 6px 13px; }
+    }
+
+    /* password row */
+    .pass-row {
+      display: flex; gap: 8px; align-items: center; margin-top: 14px;
+    }
+    .pass-input {
+      background: rgba(255,255,255,.06); border: 1px solid var(--border);
+      border-radius: 99px; color: var(--text); font-family: inherit;
+      font-size: .78rem; padding: 7px 16px; outline: none; width: 180px;
+      transition: border-color .2s;
+    }
+    .pass-input::placeholder { color: var(--muted); }
+    .pass-input:focus { border-color: var(--accent); }
+    .pass-input.wrong { border-color: #ff6b6b; animation: shake .3s; }
+    @keyframes shake {
+      0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)}
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════
+     CHESS PUZZLE OVERLAY
+═══════════════════════════════════════════════════ -->
+<div id="puzzle-overlay" style="--board-size: min(368px, 94vw)">
+
+  <div class="chess-header">
+    <span class="lock-icon">♟️</span>
+    <h2>Weekendplan beveiligd</h2>
+    <p>Versla de computer om de planning te ontgrendelen</p>
+    <div class="hint-badge">♟️ Jij speelt wit &nbsp;·&nbsp; Zet de computer schaakmat</div>
+  </div>
+
+  <div id="chess-status" class="yours">Jouw beurt — klik een stuk</div>
+
+  <div class="board-outer">
+    <div class="captured-bar top" id="cap-white"></div>
+    <div class="board-row">
+      <div class="rank-labels" id="rank-labels"></div>
+      <div class="board-wrap">
+        <div id="chess-board"></div>
+        <div id="win-splash">
+          <div class="ws-emoji">🏆</div>
+          <div class="ws-title">Schaakmat!</div>
+          <div class="ws-sub">Weekendplan ontgrendelen…</div>
+        </div>
+      </div>
+    </div>
+    <div class="file-labels" id="file-labels"></div>
+    <div class="captured-bar bot" id="cap-black"></div>
+  </div>
+
+  <div class="chess-btns">
+    <button class="chess-btn" onclick="resetChess()">↺ Nieuw spel</button>
+    <button class="chess-btn" id="undo-btn" onclick="undoMove()">↩ Zet terug</button>
+  </div>
+  <div class="pass-row">
+    <input class="pass-input" id="pass-input" type="password" placeholder="Of voer wachtwoord in…"
+           onkeydown="if(event.key==='Enter')checkPass()" />
+    <button class="chess-btn" onclick="checkPass()">→</button>
+  </div>
+  <span class="skip-link" onclick="unlock()">toegang overslaan</span>
+</div>
+
+
+<!-- ═══════════════════════════════════════
+     STICKY TAB NAV
+═══════════════════════════════════════ -->
+<nav class="tab-nav">
+  <button class="tab-btn active" data-tab="friday">🟠 Vrijdag</button>
+  <button class="tab-btn"        data-tab="saturday">🔵 Zaterdag</button>
+  <button class="tab-btn"        data-tab="sunday">🟢 Zondag</button>
+</nav>
+
+
+<!-- ═══════════════════════════════════════
+     VRIJDAG
+═══════════════════════════════════════ -->
+<div id="tab-friday" class="tab-content active day-friday">
+  <div class="hero">
+    <div class="hero-tag">🗺️ Dag 1 · Vrijdag</div>
+    <h1>Delft <span class="arrow">→</span> Duisburg</h1>
+    <p class="hero-sub">Aankomst, verkennen en de avond afsluiten in een verlichte industriële kathedraal</p>
+    <div class="hero-meta">
+      <span>📅 <strong>Vrijdag</strong></span>
+      <span>🚗 <strong>~2,5 uur rijden</strong></span>
+      <span>⏱ <strong>13:00 – 21:15</strong></span>
+    </div>
+  </div>
+  <div class="container">
+    <p class="section-label">Planning</p>
+    <div class="timeline">
+
+      <div class="card">
+        <div class="card-dot"><div class="dot"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">13:00</div><div class="card-title">Vertrek vanuit Delft</div></div><div class="card-icon">🚗</div></div>
+          <span class="badge">~2,5 uur rijden</span>
+          <div class="note">Controleer het verkeer op de A15/A67 — vertrek 15 min eerder als het druk lijkt.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">15:30</div><div class="card-title">Tiger &amp; Turtle – Magic Mountain</div></div><div class="card-icon">🎢</div></div>
+          <div class="card-loc">📍 Duisburg-Angerhausen</div>
+          <span class="badge">30–45 min</span>
+          <ul class="card-list">
+            <li>Loop rond de bewandelbare achtbaan-sculptuur</li>
+            <li>Geweldige fotohoeken — neem je camera mee</li>
+            <li>Panoramisch uitzicht over het Rijngebied</li>
+          </ul>
+          <div class="note">Kort maar krachtig — niet te lang blijven, vanavond staat er meer op het programma.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot dim"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">16:30</div><div class="card-title">Inchecken hotel</div></div><div class="card-icon">🏨</div></div>
+          <div class="card-loc">📍 B&amp;B Hotel Duisburg Hbf-Süd</div>
+          <span class="badge">~45 min</span>
+          <ul class="card-list"><li>Koffers neerzetten, opfrissen, uitademen</li><li>Kort opladen voor de avond</li></ul>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">17:30</div><div class="card-title">Avondeten in Duisburg</div></div><div class="card-icon">🍽️</div></div>
+          <span class="badge">1 – 1¼ uur</span>
+          <div class="suggestions">
+            <div class="s-item top"><div class="s-icon">⭐</div><div><div class="s-name">LoLu</div><div class="s-desc">Beste keuze · licht &amp; lekker · aanrader</div></div></div>
+            <div class="s-item"><div class="s-icon">🍕</div><div><div class="s-name">L'Osteria</div><div class="s-desc">Grote pizza's · casual sfeer · ideaal om te delen</div></div></div>
+            <div class="s-item"><div class="s-icon">🥙</div><div><div class="s-name">Snelle optie</div><div class="s-desc">Kebab of friet — snel en efficiënt</div></div></div>
+          </div>
+          <div class="note">Eet niet te zwaar — je loopt vanavond veel.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot star"></div></div>
+        <div class="card-body featured">
+          <div class="featured-tag">⭐ Hoogtepunt van Vrijdag</div>
+          <div class="card-header"><div><div class="card-time">19:00</div><div class="card-title">Landschaftspark Duisburg-Nord</div></div><div class="card-icon">🏭</div></div>
+          <div class="card-loc">📍 Emscherstraße 71, Duisburg</div>
+          <span class="badge alt">2+ uur · blijf tot het donker is</span>
+          <ul class="card-list">
+            <li>Wandel door het uitgestrekte industrielandschapspark</li>
+            <li>Beklim de uitkijkpunten op de <strong>hoogoven</strong></li>
+            <li>Blijf tot het donker — de <strong>lichtinstallatie</strong> transformeert alles</li>
+            <li>Optioneel: drankje in het café in het park</li>
+          </ul>
+          <div class="note"><strong>Parkeren:</strong> Gratis en gemakkelijk vlak bij de ingang. 🅿️</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot dim"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">21:15</div><div class="card-title">Terug naar hotel &amp; afwinden</div></div><div class="card-icon">🌙</div></div>
+          <ul class="card-list"><li>Terug naar het hotel</li><li>Optioneel: nachtdrankje in het centrum van Duisburg</li></ul>
+        </div>
+      </div>
+
+    </div>
+    <hr class="divider" />
+    <p class="section-label">Tips voor Vrijdag</p>
+    <div class="tips-grid">
+      <div class="tip-card"><div class="tip-icon">👟</div><div class="tip-title">Comfortabele schoenen</div><div class="tip-desc">Veel lopen — geen hakken of slippers.</div></div>
+      <div class="tip-card"><div class="tip-icon">🧥</div><div class="tip-title">Neem een jas mee</div><div class="tip-desc">Avonden in het park kunnen fris zijn.</div></div>
+      <div class="tip-card"><div class="tip-icon">🔋</div><div class="tip-title">Laad je telefoon op</div><div class="tip-desc">Vanavond zijn er eindeloos veel fotospots.</div></div>
+      <div class="tip-card"><div class="tip-icon">🅿️</div><div class="tip-title">Gratis parkeren</div><div class="tip-desc">Landschaftspark — gratis vlak bij de ingang.</div></div>
+    </div>
+    <div class="footer"><p>Vrijdag geregeld ✅ &nbsp;·&nbsp; Ga naar <span>Zaterdag →</span></p></div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════
+     ZATERDAG
+═══════════════════════════════════════ -->
+<div id="tab-saturday" class="tab-content day-saturday">
+  <div class="hero">
+    <div class="hero-tag">🗺️ Dag 2 · Zaterdag</div>
+    <h1>Düsseldorf <span class="arrow">·</span> Dagje Uit</h1>
+    <p class="hero-sub">Markten, architectuur, kunst — en Duitslands beste Altbier 's avonds</p>
+    <div class="hero-meta">
+      <span>📅 <strong>Zaterdag</strong></span>
+      <span>🚗 <strong>~30 min van Duisburg</strong></span>
+      <span>⏱ <strong>09:00 – 22:00</strong></span>
+    </div>
+  </div>
+  <div class="container">
+    <p class="section-label">Planning</p>
+    <div class="timeline">
+
+      <div class="card">
+        <div class="card-dot"><div class="dot"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">09:00</div><div class="card-title">Uitchecken &amp; Rijden naar Düsseldorf</div></div><div class="card-icon">🧳</div></div>
+          <span class="badge">~30 min rijden</span>
+          <ul class="card-list"><li>Ontbijt in het hotel of onderweg</li><li>Rustig naar het zuiden via de A59 — geen haast</li></ul>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">10:00</div><div class="card-title">Carlsplatz Markt</div></div><div class="card-icon">🛒</div></div>
+          <div class="card-loc">📍 Carlsplatz, Düsseldorf Altstadt</div>
+          <span class="badge">~45 min</span>
+          <ul class="card-list">
+            <li>Levendige markt — erg lokale sfeer</li>
+            <li>Koffie, gebakjes, vers fruit — ideale ochtendstart</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot star"></div></div>
+        <div class="card-body featured">
+          <div class="featured-tag">📸 Beste Fotolocatie</div>
+          <div class="card-header"><div><div class="card-time">11:00</div><div class="card-title">MedienHafen – Gehry-gebouwen</div></div><div class="card-icon">🏗️</div></div>
+          <div class="card-loc">📍 Mediahaven, Düsseldorf</div>
+          <span class="badge">1 – 1,5 uur</span>
+          <ul class="card-list">
+            <li>Gehry's iconische gedraaide gevels aan het water</li>
+            <li>Verbluffende architectuur — ideaal licht voor foto's</li>
+            <li>Wandel over de havenboulevard langs de Rijn</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot dim"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">12:30</div><div class="card-title">Lunch – MedienHafen omgeving</div></div><div class="card-icon">🥗</div></div>
+          <span class="badge">~1 uur</span>
+          <div class="suggestions">
+            <div class="s-item top"><div class="s-icon">🍜</div><div><div class="s-name">Japanse wijk</div><div class="s-desc">Grootste Japanse gemeenschap van Europa — ramen &amp; sushi vlakbij</div></div></div>
+            <div class="s-item"><div class="s-icon">🍔</div><div><div class="s-name">Havenrestaurants</div><div class="s-desc">Casual spots in de MedienHafen — eten met uitzicht</div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">13:45</div><div class="card-title">Königsallee (de "Kö")</div></div><div class="card-icon">🌳</div></div>
+          <div class="card-loc">📍 Königsallee, centrum Düsseldorf</div>
+          <span class="badge">~1 uur wandeling</span>
+          <ul class="card-list">
+            <li>Iconische boulevard met kanaal in het midden</li>
+            <li>Prachtig — ook als je niet gaat winkelen</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot dim"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">15:00</div><div class="card-title">Middagkeuze — Jij bepaalt</div></div><div class="card-icon">🎯</div></div>
+          <span class="badge">1,5 – 2 uur</span>
+          <div class="option-fork three">
+            <div class="opt-card"><div class="opt-icon">🥽</div><div class="opt-name">VR Nerds</div><div class="opt-desc">Vrij-roam VR in Düsseldorf</div></div>
+            <div class="opt-card"><div class="opt-icon">🎨</div><div class="opt-name">K20 Museum</div><div class="opt-desc">Moderne kunst, Picasso, Klee</div></div>
+            <div class="opt-card"><div class="opt-icon">☕</div><div class="opt-name">Gewoon chillen</div><div class="opt-desc">Koffie, wandeling, opladen</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot star"></div></div>
+        <div class="card-body featured">
+          <div class="featured-tag">🍺 Hoogtepunt van Zaterdag</div>
+          <div class="card-header"><div><div class="card-time">19:00</div><div class="card-title">Altbier Brouwerijen Kroegentocht</div></div><div class="card-icon">🍻</div></div>
+          <div class="card-loc">📍 Düsseldorf Altstadt — 300+ kroegen in één wijk</div>
+          <span class="badge alt">2+ uur · de volledige Düsseldorf-ervaring</span>
+          <div class="suggestions" style="margin-top:10px;">
+            <div class="s-item top"><div class="s-icon">⭐</div><div><div class="s-name">Uerige</div><div class="s-desc">De beroemdste — levendig, authentiek, niet te missen</div></div></div>
+            <div class="s-item"><div class="s-icon">🍺</div><div><div class="s-name">Füchschen</div><div class="s-desc">Heerlijk eten + geweldig Altbier · warme sfeer</div></div></div>
+            <div class="s-item"><div class="s-icon">🏛️</div><div><div class="s-name">Zum Schlüssel</div><div class="s-desc">Klassiek en centraal · een goede derde stop</div></div></div>
+          </div>
+          <div class="note"><strong>Altbier tip:</strong> Geserveerd in kleine 0,2L glazen — de ober blijft ze brengen totdat je een bierviltje op je glas legt. 🍺</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot dim"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">21:30</div><div class="card-title">Late Avond / Afwinden</div></div><div class="card-icon">🌙</div></div>
+          <ul class="card-list">
+            <li>Pak een laat hapje — currywurst of döner vlakbij</li>
+            <li>Terug naar Duisburg of blijf in Düsseldorf centrum</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+    <hr class="divider" />
+    <p class="section-label">Tips voor Zaterdag</p>
+    <div class="tips-grid">
+      <div class="tip-card"><div class="tip-icon">🍺</div><div class="tip-title">Bezoek 2+ brouwerijen</div><div class="tip-desc">Ze liggen allemaal op 5 min van elkaar.</div></div>
+      <div class="tip-card"><div class="tip-icon">🧢</div><div class="tip-title">Bierviltje = stoppen</div><div class="tip-desc">Leg het op je glas als je genoeg hebt.</div></div>
+      <div class="tip-card"><div class="tip-icon">🍜</div><div class="tip-title">Japanse wijk</div><div class="tip-desc">Ideaal voor lunch — grootste gemeenschap in Europa.</div></div>
+      <div class="tip-card"><div class="tip-icon">🚗</div><div class="tip-title">Eén keer parkeren</div><div class="tip-desc">Laat de auto staan — de Altstadt is compact.</div></div>
+    </div>
+    <div class="footer"><p>Zaterdag geregeld ✅ &nbsp;·&nbsp; Bekijk <span>Zondag →</span> voor de terugreis</p></div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════
+     ZONDAG
+═══════════════════════════════════════ -->
+<div id="tab-sunday" class="tab-content day-sunday">
+  <div class="hero">
+    <div class="hero-tag">🗺️ Dag 3 · Zondag</div>
+    <h1>Terug naar huis <span class="arrow">→</span> Delft</h1>
+    <p class="hero-sub">Rustige ochtend, één laatste stop, dan rechtstreeks naar huis</p>
+    <div class="hero-meta">
+      <span>📅 <strong>Zondag</strong></span>
+      <span>🚗 <strong>~2,5 uur direct</strong></span>
+      <span>🏡 <strong>Thuis voor de vroege middag</strong></span>
+    </div>
+  </div>
+  <div class="container">
+    <p class="section-label">Planning</p>
+    <div class="timeline">
+
+      <div class="card">
+        <div class="card-dot"><div class="dot dim"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">09:00</div><div class="card-title">Rustige ochtend &amp; uitchecken</div></div><div class="card-icon">☕</div></div>
+          <ul class="card-list"><li>Geen wekker — neem de tijd</li><li>Ontbijt in het hotel of een café in de buurt</li><li>Inpakken, uitchecken, auto laden</li></ul>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">10:30</div><div class="card-title">Optioneel — Één Laatste Stop</div></div><div class="card-icon">🎯</div></div>
+          <span class="badge">~1 uur · volledig optioneel</span>
+          <div class="option-fork" style="margin-top:10px;">
+            <div class="opt-card"><div class="opt-icon">🛒</div><div class="opt-name">Carlsplatz Markt</div><div class="opt-desc">Laatste koffie &amp; gebakje als je het zaterdag miste</div></div>
+            <div class="opt-card"><div class="opt-icon">🌊</div><div class="opt-name">Rijnpromenade</div><div class="opt-desc">Rustige ochtendwandeling langs de rivier</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">11:30</div><div class="card-title">Vertrek richting Delft</div></div><div class="card-icon">🚗</div></div>
+          <span class="badge">~2,5 uur via A3 / A15</span>
+          <ul class="card-list">
+            <li>A3 noordwaarts, grens over bij Zevenaar</li>
+            <li>A15 richting Rotterdam, dan A13 naar Delft</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-dot"><div class="dot dim"></div></div>
+        <div class="card-body">
+          <div class="card-header"><div><div class="card-time">14:00</div><div class="card-title">Aankomst Delft 🏠</div></div><div class="card-icon">🏡</div></div>
+          <ul class="card-list"><li>Thuis voor het einde van de middag</li><li>Uitpakken, rusten, zondagavond is van jou</li><li>Pizza bestellen, het weekend herbeleven ✅</li></ul>
+        </div>
+      </div>
+
+    </div>
+    <hr class="divider" />
+    <p class="section-label">Weekendsamenvatting</p>
+    <div class="tips-grid">
+      <div class="tip-card"><div class="tip-icon">🏭</div><div class="tip-title">Hoogtepunt vrijdag</div><div class="tip-desc">Landschaftspark 's nachts verlicht.</div></div>
+      <div class="tip-card"><div class="tip-icon">🏗️</div><div class="tip-title">Zaterdagochtend</div><div class="tip-desc">Gehry-gebouwen bij de MedienHafen.</div></div>
+      <div class="tip-card"><div class="tip-icon">🍺</div><div class="tip-title">Zaterdagavond</div><div class="tip-desc">Altbier-kroegentocht bij Uerige &amp; Füchschen.</div></div>
+      <div class="tip-card"><div class="tip-icon">🚗</div><div class="tip-title">Makkelijke rit</div><div class="tip-desc">2,5 uur, stressvrij, thuis voor het eten.</div></div>
+    </div>
+    <div class="footer"><p>Geweldig weekend! 🚗 <span>Delft → Duisburg → Düsseldorf → thuis</span> ✨</p></div>
+  </div>
+</div>
+
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   CHESS ENGINE — complete implementation
+═══════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+
+  /* ── Glyphs ──────────────────────────────────────────── */
+  const GLYPH = {K:'♔',Q:'♕',R:'♖',B:'♗',N:'♘',P:'♙',
+                 k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'};
+
+  /* ── Game state ──────────────────────────────────────── */
+  let G; // set in newGame()
+
+  function newGame() {
+    G = {
+      board   : initBoard(),
+      turn    : 'w',
+      castling: {wK:true, wQ:true, bK:true, bQ:true},
+      ep      : null,    // en-passant target index
+      history : [],      // for undo (pairs: player move + AI move)
+      selected: null,
+      legal   : [],      // legal moves for selected piece
+      lastMove: null,
+      over    : false,
+      captW   : [],      // pieces white captured
+      captB   : [],      // pieces black captured
+    };
+    render();
+    setStatus('yours', 'Jouw beurt — klik een stuk');
+  }
+
+  function initBoard() {
+    const b = Array(64).fill('.');
+    const back = ['R','N','B','Q','K','B','N','R'];
+    for (let f = 0; f < 8; f++) {
+      b[f]    = back[f];              // rank 1 (white back rank)
+      b[8+f]  = 'P';                  // rank 2 (white pawns)
+      b[48+f] = 'p';                  // rank 7 (black pawns)
+      b[56+f] = back[f].toLowerCase();// rank 8 (black back rank)
+    }
+    return b;
+  }
+
+  /* ── Helpers ─────────────────────────────────────────── */
+  const pc  = p  => p === '.' ? null : (p === p.toUpperCase() ? 'w' : 'b');
+  const opp = c  => c === 'w' ? 'b' : 'w';
+  const sq  = (r,f) => r*8+f;
+  const rk  = i  => Math.floor(i/8);
+  const fl  = i  => i % 8;
+
+  /* ── Move generation ─────────────────────────────────── */
+  function pseudoMoves(b, ep, cast, from) {
+    const p = b[from];
+    if (!p || p === '.') return [];
+    const c = pc(p), type = p.toUpperCase();
+    const r = rk(from), f = fl(from);
+    const moves = [];
+
+    function push(to, extra) {
+      if (to < 0 || to > 63) return;
+      if (pc(b[to]) === c) return;
+      moves.push(Object.assign({from, to}, extra));
+    }
+
+    function slide(dr, df) {
+      for (let i = 1; i < 8; i++) {
+        const nr = r+dr*i, nf = f+df*i;
+        if (nr < 0 || nr > 7 || nf < 0 || nf > 7) break;
+        const t = sq(nr, nf);
+        if (pc(b[t]) === c) break;
+        moves.push({from, to:t});
+        if (b[t] !== '.') break;
+      }
+    }
+
+    if (type === 'P') {
+      const dir   = c === 'w' ? 1 : -1;
+      const startR = c === 'w' ? 1 : 6;
+      const promR  = c === 'w' ? 7 : 0;
+      const promos = c === 'w' ? ['Q','R','B','N'] : ['q','r','b','n'];
+
+      if (r+dir >= 0 && r+dir <= 7) {
+        const fwd = sq(r+dir, f);
+        if (b[fwd] === '.') {
+          if (r+dir === promR) {
+            promos.forEach(pr => moves.push({from, to:fwd, promo:pr}));
+          } else {
+            moves.push({from, to:fwd});
+            if (r === startR && b[sq(r+dir*2, f)] === '.')
+              moves.push({from, to:sq(r+dir*2,f), epTarget:sq(r+dir,f)});
+          }
+        }
+      }
+      for (const df2 of [-1, 1]) {
+        const nf2 = f+df2;
+        if (nf2 < 0 || nf2 > 7 || r+dir < 0 || r+dir > 7) continue;
+        const to = sq(r+dir, nf2);
+        if (pc(b[to]) === opp(c)) {
+          if (r+dir === promR) promos.forEach(pr => moves.push({from, to, promo:pr}));
+          else moves.push({from, to});
+        }
+        if (ep !== null && to === ep) moves.push({from, to, epCap:sq(r, nf2)});
+      }
+      return moves;
+    }
+
+    if (type === 'N') {
+      [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]
+        .forEach(([dr,df2]) => {
+          const nr = r+dr, nf2 = f+df2;
+          if (nr>=0&&nr<=7&&nf2>=0&&nf2<=7) push(sq(nr,nf2));
+        });
+      return moves;
+    }
+
+    if (type === 'B') { slide(1,1);slide(1,-1);slide(-1,1);slide(-1,-1); return moves; }
+    if (type === 'R') { slide(1,0);slide(-1,0);slide(0,1);slide(0,-1); return moves; }
+    if (type === 'Q') {
+      slide(1,1);slide(1,-1);slide(-1,1);slide(-1,-1);
+      slide(1,0);slide(-1,0);slide(0,1);slide(0,-1);
+      return moves;
+    }
+
+    if (type === 'K') {
+      [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]
+        .forEach(([dr,df2]) => {
+          const nr = r+dr, nf2 = f+df2;
+          if (nr>=0&&nr<=7&&nf2>=0&&nf2<=7) push(sq(nr,nf2));
+        });
+      // Castling (only from starting square)
+      if (c === 'w' && r === 0 && f === 4) {
+        if (cast.wK && b[sq(0,5)]==='.'&&b[sq(0,6)]==='.'&&b[sq(0,7)]==='R')
+          moves.push({from, to:sq(0,6), castle:'wK'});
+        if (cast.wQ && b[sq(0,3)]==='.'&&b[sq(0,2)]==='.'&&b[sq(0,1)]==='.'&&b[sq(0,0)]==='R')
+          moves.push({from, to:sq(0,2), castle:'wQ'});
+      }
+      if (c === 'b' && r === 7 && f === 4) {
+        if (cast.bK && b[sq(7,5)]==='.'&&b[sq(7,6)]==='.'&&b[sq(7,7)]==='r')
+          moves.push({from, to:sq(7,6), castle:'bK'});
+        if (cast.bQ && b[sq(7,3)]==='.'&&b[sq(7,2)]==='.'&&b[sq(7,1)]==='.'&&b[sq(7,0)]==='r')
+          moves.push({from, to:sq(7,2), castle:'bQ'});
+      }
+      return moves;
+    }
+    return moves;
+  }
+
+  function applyMove(b, ep, cast, move) {
+    const nb     = b.slice();
+    const ncast  = Object.assign({}, cast);
+    let   nep    = null;
+    const p      = nb[move.from];
+
+    nb[move.to]   = move.promo || p;
+    nb[move.from] = '.';
+
+    if (move.epCap !== undefined) nb[move.epCap] = '.';
+    if (move.epTarget !== undefined) nep = move.epTarget;
+
+    if (move.castle) {
+      if (move.castle === 'wK') { nb[sq(0,7)]='.'; nb[sq(0,5)]='R'; }
+      if (move.castle === 'wQ') { nb[sq(0,0)]='.'; nb[sq(0,3)]='R'; }
+      if (move.castle === 'bK') { nb[sq(7,7)]='.'; nb[sq(7,5)]='r'; }
+      if (move.castle === 'bQ') { nb[sq(7,0)]='.'; nb[sq(7,3)]='r'; }
+    }
+
+    if (move.from===sq(0,4))                  { ncast.wK=false; ncast.wQ=false; }
+    if (move.from===sq(7,4))                  { ncast.bK=false; ncast.bQ=false; }
+    if (move.from===sq(0,0)||move.to===sq(0,0)) ncast.wQ=false;
+    if (move.from===sq(0,7)||move.to===sq(0,7)) ncast.wK=false;
+    if (move.from===sq(7,0)||move.to===sq(7,0)) ncast.bQ=false;
+    if (move.from===sq(7,7)||move.to===sq(7,7)) ncast.bK=false;
+
+    return {board:nb, ep:nep, castling:ncast};
+  }
+
+  function inCheck(b, ep, cast, c) {
+    const king = c === 'w' ? 'K' : 'k';
+    const ki   = b.indexOf(king);
+    if (ki === -1) return true;
+    for (let i = 0; i < 64; i++) {
+      if (pc(b[i]) === opp(c)) {
+        if (pseudoMoves(b, ep, cast, i).some(m => m.to === ki)) return true;
+      }
+    }
+    return false;
+  }
+
+  function legalMovesFor(b, ep, cast, c) {
+    const result = [];
+    for (let i = 0; i < 64; i++) {
+      if (pc(b[i]) !== c) continue;
+      for (const m of pseudoMoves(b, ep, cast, i)) {
+        // Castling: king can't pass through check
+        if (m.castle) {
+          const mid = m.castle[1]==='K' ?
+            (c==='w'?sq(0,5):sq(7,5)) : (c==='w'?sq(0,3):sq(7,3));
+          const tmp = b.slice();
+          tmp[m.from]='.'; tmp[mid]=b[m.from];
+          if (inCheck(tmp, null, cast, c)) continue;
+          if (inCheck(b, ep, cast, c)) continue; // can't castle while in check
+        }
+        const {board:nb, ep:nep, castling:ncast} = applyMove(b, ep, cast, m);
+        if (!inCheck(nb, nep, ncast, c)) result.push(m);
+      }
+    }
+    return result;
+  }
+
+  /* ── Evaluation & AI (depth-3 minimax + move ordering) ─ */
+  const MAT = {P:100,N:320,B:330,R:500,Q:900,K:20000,
+               p:100,n:320,b:330,r:500,q:900,k:20000};
+
+  // Piece-square tables (from white's perspective, rank 1 = index 0)
+  // These are flipped for black automatically below
+  const PST = {
+    P: [ 0, 0, 0, 0, 0, 0, 0, 0,
+         5,10,10,-20,-20,10,10, 5,
+         5,-5,-10, 0, 0,-10,-5, 5,
+         0, 0, 0, 20, 20, 0, 0, 0,
+         5, 5,10, 25, 25,10, 5, 5,
+        10,10,20, 30, 30,20,10,10,
+        50,50,50, 50, 50,50,50,50,
+         0, 0, 0,  0,  0, 0, 0, 0 ],
+    N: [-50,-40,-30,-30,-30,-30,-40,-50,
+        -40,-20,  0,  5,  5,  0,-20,-40,
+        -30,  5, 10, 15, 15, 10,  5,-30,
+        -30,  0, 15, 20, 20, 15,  0,-30,
+        -30,  5, 15, 20, 20, 15,  5,-30,
+        -30,  0, 10, 15, 15, 10,  0,-30,
+        -40,-20,  0,  0,  0,  0,-20,-40,
+        -50,-40,-30,-30,-30,-30,-40,-50 ],
+    B: [-20,-10,-10,-10,-10,-10,-10,-20,
+        -10,  5,  0,  0,  0,  0,  5,-10,
+        -10, 10, 10, 10, 10, 10, 10,-10,
+        -10,  0, 10, 10, 10, 10,  0,-10,
+        -10,  5,  5, 10, 10,  5,  5,-10,
+        -10,  0,  5, 10, 10,  5,  0,-10,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -20,-10,-10,-10,-10,-10,-10,-20 ],
+    R: [  0,  0,  0,  5,  5,  0,  0,  0,
+         -5,  0,  0,  0,  0,  0,  0, -5,
+         -5,  0,  0,  0,  0,  0,  0, -5,
+         -5,  0,  0,  0,  0,  0,  0, -5,
+         -5,  0,  0,  0,  0,  0,  0, -5,
+         -5,  0,  0,  0,  0,  0,  0, -5,
+          5, 10, 10, 10, 10, 10, 10,  5,
+          0,  0,  0,  0,  0,  0,  0,  0 ],
+    Q: [-20,-10,-10, -5, -5,-10,-10,-20,
+        -10,  0,  5,  0,  0,  0,  0,-10,
+        -10,  5,  5,  5,  5,  5,  0,-10,
+          0,  0,  5,  5,  5,  5,  0, -5,
+         -5,  0,  5,  5,  5,  5,  0, -5,
+        -10,  0,  5,  5,  5,  5,  0,-10,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -20,-10,-10, -5, -5,-10,-10,-20 ],
+    K: [ 20, 30, 10,  0,  0, 10, 30, 20,
+         20, 20,  0,  0,  0,  0, 20, 20,
+        -10,-20,-20,-20,-20,-20,-20,-10,
+        -20,-30,-30,-40,-40,-30,-30,-20,
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -30,-40,-40,-50,-50,-40,-40,-30 ],
+  };
+
+  function pst(p, i) {
+    const type = p.toUpperCase();
+    const tbl  = PST[type];
+    if (!tbl) return 0;
+    // White reads table from rank 1 upward (index 0 = rank 1 = bottom)
+    // Black flips rank
+    return pc(p) === 'w' ? tbl[i] : tbl[63-i];
+  }
+
+  function evalBoard(b) {
+    let score = 0;
+    for (let i = 0; i < 64; i++) {
+      const p = b[i];
+      if (p === '.') continue;
+      const v = MAT[p] + pst(p, i);
+      score += pc(p) === 'w' ? v : -v;
+    }
+    return score;
+  }
+
+  // Move ordering: captures (MVV-LVA) first, then PST gain, then rest
+  function orderMoves(b, moves) {
+    return moves.slice().sort((a, b2) => {
+      const capA = b[a.to] !== '.' ? MAT[b[a.to]] - MAT[b[a.from]]*0.1 : 0;
+      const capB = b[b2.to] !== '.' ? MAT[b[b2.to]] - MAT[b[b2.from]]*0.1 : 0;
+      return (capB + (a.promo ? 800 : 0)) - (capA + (b2.promo ? 800 : 0));
+    });
+  }
+
+  function minimax(b, ep, cast, depth, alpha, beta, maxing) {
+    const c = maxing ? 'w' : 'b';
+    const moves = legalMovesFor(b, ep, cast, c);
+    if (moves.length === 0)
+      return inCheck(b, ep, cast, c) ? (maxing ? -29000 + depth*10 : 29000 - depth*10) : 0;
+    if (depth === 0) return evalBoard(b);
+
+    const ordered = orderMoves(b, moves);
+
+    if (maxing) {
+      let best = -Infinity;
+      for (const m of ordered) {
+        const s = applyMove(b, ep, cast, m);
+        best = Math.max(best, minimax(s.board, s.ep, s.castling, depth-1, alpha, beta, false));
+        alpha = Math.max(alpha, best);
+        if (beta <= alpha) break;
+      }
+      return best;
+    } else {
+      let best = Infinity;
+      for (const m of ordered) {
+        const s = applyMove(b, ep, cast, m);
+        best = Math.min(best, minimax(s.board, s.ep, s.castling, depth-1, alpha, beta, true));
+        beta = Math.min(beta, best);
+        if (beta <= alpha) break;
+      }
+      return best;
+    }
+  }
+
+  function aiPick() {
+    const moves = legalMovesFor(G.board, G.ep, G.castling, 'b');
+    if (!moves.length) return null;
+    const ordered = orderMoves(G.board, moves);
+    let best = Infinity, chosen = [];
+    for (const m of ordered) {
+      const s   = applyMove(G.board, G.ep, G.castling, m);
+      const val = minimax(s.board, s.ep, s.castling, 2, -Infinity, Infinity, true);
+      if (val < best)  { best = val; chosen = [m]; }
+      else if (val === best) chosen.push(m);
+    }
+    return chosen[Math.random()*chosen.length|0];
+  }
+
+  /* ── Render ──────────────────────────────────────────── */
+  function render() {
+    const boardEl = document.getElementById('chess-board');
+    boardEl.innerHTML = '';
+
+    // Rank labels (8 down to 1)
+    const rl = document.getElementById('rank-labels');
+    rl.innerHTML = '';
+    for (let r = 7; r >= 0; r--) {
+      const s = document.createElement('span');
+      s.textContent = r+1;
+      rl.appendChild(s);
+    }
+    // File labels (a–h)
+    const fl2 = document.getElementById('file-labels');
+    fl2.innerHTML = '';
+    'abcdefgh'.split('').forEach(c => {
+      const s = document.createElement('span');
+      s.textContent = c;
+      fl2.appendChild(s);
+    });
+
+    const legalTos   = new Set(G.legal.map(m => m.to));
+    const lastSet    = G.lastMove ? new Set([G.lastMove.from, G.lastMove.to]) : new Set();
+    const whiteCheck = G.turn==='w' && inCheck(G.board, G.ep, G.castling, 'w');
+    const blackCheck = G.turn==='b' && inCheck(G.board, G.ep, G.castling, 'b');
+
+    for (let r = 7; r >= 0; r--) {
+      for (let f = 0; f < 8; f++) {
+        const i = sq(r, f);
+        const p = G.board[i];
+        const div = document.createElement('div');
+        let cls = 'sq ' + ((r+f)%2===1 ? 'light' : 'dark');
+        if (G.selected === i) cls += ' sel';
+        if (legalTos.has(i)) { cls += ' legal'; if (p !== '.') cls += ' has-piece'; }
+        if (lastSet.has(i))  cls += ' last-' + (i===G.lastMove.from ? 'from' : 'to');
+        if ((p==='K'&&whiteCheck) || (p==='k'&&blackCheck)) cls += ' in-check-king';
+        div.className = cls;
+        div.dataset.sq = i;
+        if (p !== '.') {
+          const span = document.createElement('span');
+          span.className = 'cp ' + pc(p);
+          span.textContent = GLYPH[p];
+          div.appendChild(span);
+        }
+        div.addEventListener('click', () => onSquareClick(i));
+        boardEl.appendChild(div);
+      }
+    }
+
+    // Captured bars
+    document.getElementById('cap-white').textContent = G.captW.map(x=>GLYPH[x]).join('');
+    document.getElementById('cap-black').textContent = G.captB.map(x=>GLYPH[x]).join('');
+  }
+
+  /* ── Click handler ───────────────────────────────────── */
+  function onSquareClick(i) {
+    if (G.over || G.turn !== 'w') return;
+
+    // Execute legal move if clicked target
+    const move = G.legal.find(m => m.to === i);
+    if (move) { doMove(move); return; }
+
+    // Select own piece
+    if (pc(G.board[i]) === 'w') {
+      G.selected = i;
+      G.legal = legalMovesFor(G.board, G.ep, G.castling, 'w').filter(m => m.from === i);
+    } else {
+      G.selected = null;
+      G.legal = [];
+    }
+    render();
+  }
+
+  /* ── Execute move ────────────────────────────────────── */
+  function doMove(move) {
+    // Snapshot for undo
+    const snap = () => ({
+      board: G.board.slice(), ep: G.ep,
+      castling: Object.assign({}, G.castling),
+      captW: G.captW.slice(), captB: G.captB.slice(),
+      lastMove: G.lastMove, selected: null, legal: []
+    });
+    const before = snap();
+
+    // Track capture
+    const cap = G.board[move.to];
+    if (cap !== '.') G.captW.push(cap);
+    if (move.epCap !== undefined) G.captW.push(G.board[move.epCap]);
+
+    const s = applyMove(G.board, G.ep, G.castling, move);
+    G.board    = s.board;
+    G.ep       = s.ep;
+    G.castling = s.castling;
+    G.lastMove = move;
+    G.selected = null;
+    G.legal    = [];
+    G.turn     = 'b';
+
+    render();
+
+    // Check end-of-game for black
+    const bMoves = legalMovesFor(G.board, G.ep, G.castling, 'b');
+    if (!bMoves.length) {
+      G.over = true;
+      if (inCheck(G.board, G.ep, G.castling, 'b')) {
+        document.getElementById('win-splash').style.display = 'block';
+        setStatus('win', '🏆 Schaakmat! Jij wint!');
+        setTimeout(unlock, 2600);
+      } else {
+        setStatus('win', 'Pat — remise!');
+      }
+      return;
+    }
+
+    if (inCheck(G.board, G.ep, G.castling, 'b')) setStatus('check','Computer staat schaak!');
+    else setStatus('ai','Computer denkt…');
+
+    // AI move
+    setTimeout(() => {
+      if (G.over) return;
+      const aiMove = aiPick();
+      if (!aiMove) return;
+
+      const before2 = snap();
+
+      const cap2 = G.board[aiMove.to];
+      if (cap2 !== '.') G.captB.push(cap2);
+      if (aiMove.epCap !== undefined) G.captB.push(G.board[aiMove.epCap]);
+
+      const s2 = applyMove(G.board, G.ep, G.castling, aiMove);
+      G.board    = s2.board;
+      G.ep       = s2.ep;
+      G.castling = s2.castling;
+      G.lastMove = aiMove;
+      G.turn     = 'w';
+
+      // Push both moves to history as a pair
+      G.history.push({before, before2});
+
+      render();
+
+      const wMoves = legalMovesFor(G.board, G.ep, G.castling, 'w');
+      if (!wMoves.length) {
+        G.over = true;
+        setStatus('check', inCheck(G.board, G.ep, G.castling, 'w')
+          ? 'Schaakmat — computer wint.' : 'Pat — remise!');
+        return;
+      }
+      if (inCheck(G.board, G.ep, G.castling, 'w'))
+        setStatus('check','⚠ Schaak! Jouw koning staat onder aanval');
+      else
+        setStatus('yours','Jouw beurt — klik een stuk');
+    }, 280);
+  }
+
+  /* ── Status bar ──────────────────────────────────────── */
+  function setStatus(cls, msg) {
+    const el = document.getElementById('chess-status');
+    el.className = cls;
+    el.textContent = msg;
+  }
+
+  /* ── Public API ──────────────────────────────────────── */
+  window.resetChess = function () { newGame(); };
+
+  window.undoMove = function () {
+    const pair = G.history.pop();
+    if (!pair) return;
+    // restore to state before player's move
+    const b = pair.before;
+    G.board    = b.board;
+    G.ep       = b.ep;
+    G.castling = b.castling;
+    G.captW    = b.captW;
+    G.captB    = b.captB;
+    G.lastMove = b.lastMove;
+    G.selected = null;
+    G.legal    = [];
+    G.turn     = 'w';
+    G.over     = false;
+    document.getElementById('win-splash').style.display = 'none';
+    render();
+    setStatus('yours','Jouw beurt — klik een stuk');
+  };
+
+  window.unlock = function () {
+    const ov = document.getElementById('puzzle-overlay');
+    ov.classList.add('unlocking');
+    setTimeout(() => { ov.style.display = 'none'; }, 650);
+  };
+
+  window.checkPass = function () {
+    const inp = document.getElementById('pass-input');
+    if (inp.value === 'alleenvoorstef') {
+      unlock();
+    } else {
+      inp.value = '';
+      inp.classList.add('wrong');
+      setTimeout(() => inp.classList.remove('wrong'), 400);
+    }
+  };
+
+  /* ── Tab navigation ──────────────────────────────────── */
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  /* ── Init ────────────────────────────────────────────── */
+  newGame();
+})();
+</script>
+</body>
+</html>�
