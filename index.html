@@ -1227,8 +1227,18 @@
       const wMoves = legalMovesFor(G.board, G.ep, G.castling, 'w');
       if (!wMoves.length) {
         G.over = true;
-        setStatus('check', inCheck(G.board, G.ep, G.castling, 'w')
-          ? 'Schaakmat — computer wint.' : 'Pat — remise!');
+        const splash = document.getElementById('win-splash');
+        if (inCheck(G.board, G.ep, G.castling, 'w')) {
+          splash.innerHTML = '<div class="ws-emoji">💀</div><div class="ws-title" style="color:#ff6b6b">Schaakmat!</div><div class="ws-sub">Computer wint — probeer het opnieuw</div>';
+          splash.style.borderColor = '#ff6b6b';
+          splash.style.display = 'block';
+          setStatus('check', 'Schaakmat — computer wint.');
+        } else {
+          splash.innerHTML = '<div class="ws-emoji">🤝</div><div class="ws-title" style="color:#aaa">Remise!</div><div class="ws-sub">Pat — geen zetten meer mogelijk</div>';
+          splash.style.borderColor = '#aaa';
+          splash.style.display = 'block';
+          setStatus('win', 'Pat — remise!');
+        }
         return;
       }
       if (inCheck(G.board, G.ep, G.castling, 'w'))
